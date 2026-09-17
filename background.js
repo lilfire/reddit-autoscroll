@@ -15,7 +15,7 @@ function stop(tabId) {
 async function togglePause(tabId, session) {
   session.paused = !session.paused;
   session.last = Date.now();
-  await browser.tabs.sendMessage(tabId, { type: "scroll-state", running: !session.paused, speed: session.speed, direction: session.direction, waitForVideos: session.waitForVideos, videoSpeedPercent: session.videoSpeedPercent, autoImages: session.autoImages, waitForImages: session.waitForImages, imageSpeedPercent: session.imageSpeedPercent, imageSeconds: session.imageSeconds });
+  await browser.tabs.sendMessage(tabId, { type: "scroll-state", running: !session.paused, paused: session.paused, speed: session.speed, direction: session.direction, waitForVideos: session.waitForVideos, videoSpeedPercent: session.videoSpeedPercent, autoImages: session.autoImages, waitForImages: session.waitForImages, imageSpeedPercent: session.imageSpeedPercent, imageSeconds: session.imageSeconds });
   await badge(tabId, session.paused ? "Ⅱ" : "ON");
 }
 
@@ -49,7 +49,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   }
   if (message.type !== "control") return;
   try {
-    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    const tab = sender?.tab || (await browser.tabs.query({ active: true, currentWindow: true }))[0];
     if (!tab) throw new Error("Ingen valgt fane.");
     if (message.action === "start") await start(tab.id, message.settings);
     if (message.action === "pause") {
@@ -57,6 +57,9 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       if (session) await togglePause(tab.id, session);
     }
     if (message.action === "stop") stop(tab.id);
+    if (message.action === "skip" && sessions.has(tab.id)) {
+      await browser.tabs.sendMessage(tab.id, { type: "scroll-skip" }, { frameId: 0 });
+    }
     const saved = await browser.storage.local.get("settings");
     const session = sessions.get(tab.id);
     return { settings: session || saved.settings || defaults, video: session?.video || null, status: session ? (session.paused ? "paused" : "running") : "stopped" };

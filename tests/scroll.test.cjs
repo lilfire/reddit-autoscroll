@@ -13,14 +13,26 @@ function setup() {
   const galleryElements = [];
   const playerFrames = [];
   const frames = new Map();
+  const elements = [];
+  function createElement(tag) {
+    const element = { tag, style: {}, children: [], isConnected: false, textContent: '',
+      append(...children) { this.children.push(...children); children.forEach(child => { child.isConnected = true; }); },
+      setAttribute() {}, addEventListener(type, fn) { this[type] = fn; },
+      attachShadow() { this.shadow = createElement('shadow'); return this.shadow; },
+      remove() { this.isConnected = false; } };
+    elements.push(element);
+    return element;
+  }
   const root = { scrollTop: 0, scrollHeight: 2000, clientHeight: 500, isConnected: true,
     scrollTo({ top }) { this.scrollTop = Math.max(0, Math.min(top, this.scrollHeight - this.clientHeight)); } };
   const document = { scrollingElement: root, hidden: true, shadowHosts: [], querySelectorAll(selector) { return selector === 'video' ? videoElements : selector === 'gallery-carousel' ? galleryElements : selector === 'iframe' ? playerFrames : this.shadowHosts; }, addEventListener(type, fn) { visibility = fn; } };
+  document.createElement = createElement;
+  document.documentElement = createElement('html');
   const context = vm.createContext({ document, innerWidth: 800, innerHeight: 500, MutationObserver: class { constructor(fn) { mutation = fn; } observe() {} }, Date: { now: () => now }, requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame(id) { frames.delete(id); }, browser: { runtime: { onMessage: { addListener(fn) { listener = fn; } } } } });
   const source = fs.readFileSync(path.join(__dirname, '../content.js'), 'utf8');
   vm.runInContext(source, context);
   listener({ type: 'scroll-state', running: true, speed: 80, direction: 1 });
-  return { root, document, tick: (distance, background = true) => listener({ type: 'scroll-tick', distance, background }), time: value => { now = value; }, reset: () => listener({ type: 'scroll-reset' }), reinject: () => vm.runInContext(source, context),
+  return { root, document, elements, skip: () => listener({ type: 'scroll-skip' }), paused: () => listener({ type: 'scroll-state', running: false, paused: true, speed: 80, direction: 1 }), tick: (distance, background = true) => listener({ type: 'scroll-tick', distance, background }), time: value => { now = value; }, reset: () => listener({ type: 'scroll-reset' }), reinject: () => vm.runInContext(source, context),
     state: (running, speed = 80, waitForVideos = true, videoSpeedPercent = 25, imageSettings = {}) => listener({ type: 'scroll-state', running, speed, direction: 1, waitForVideos, videoSpeedPercent, ...imageSettings }),
     report: (videos, frameId = 7, frameUrl) => listener({ type: 'frame-video-update', frameId, frameUrl, videos }),
     addFrame(src, top) { const frame = { src, isConnected: true, offsetHeight: 200, clientTop: 0, getBoundingClientRect() { return { top: top - root.scrollTop, height: 200 }; } }; playerFrames.push(frame); mutation(); return frame; },
@@ -68,6 +80,39 @@ test('newly inserted playing video holds scrolling and resumes on completion', a
   await s.tick(20); assert.equal(s.root.scrollTop, 40);
   video.ended = false; video.currentTime = 0;
   await s.tick(20); assert.equal(s.root.scrollTop, 60);
+});
+
+test('Reddit GIF without autoplay starts through shadow DOM and releases after one loop', async () => {
+  const s = setup(); let starts = 0;
+  const player = { localName: 'shreddit-player' };
+  const video = s.addVideo({ top: 450, autoplay: false, paused: true, currentTime: 0,
+    getRootNode: () => ({ host: player }),
+    play() { starts++; this.paused = false; return Promise.resolve(); } });
+  await s.tick(20); assert.equal(starts, 0);
+  video.top = 120; await s.tick(20);
+  assert.equal(starts, 1); assert.equal(video.muted, true); assert.equal(s.root.scrollTop, 25);
+  video.currentTime = 8; await s.tick(1000); assert.equal(s.root.scrollTop, 56);
+  video.currentTime = 0.1; await s.tick(20); assert.equal(s.root.scrollTop, 76);
+  video.paused = true; await s.tick(20); assert.equal(starts, 1);
+});
+
+test('blocked Reddit playback times out without repeated start attempts', async () => {
+  const s = setup(); let starts = 0;
+  s.addVideo({ autoplay: false, paused: true, currentTime: 0,
+    parentNode: { localName: 'shreddit-player' },
+    play() { starts++; return Promise.reject(new Error('blocked')); } });
+  await s.tick(20); await s.tick(20); assert.equal(starts, 1);
+  s.time(5000); await s.tick(20); assert.equal(s.root.scrollTop, 20);
+  await s.tick(20); assert.equal(starts, 1);
+});
+
+test('automatic start respects video waiting and ignores ordinary paused videos', async () => {
+  const s = setup(); let starts = 0;
+  const video = s.addVideo({ autoplay: false, paused: true, play() { starts++; } });
+  await s.tick(20); assert.equal(starts, 0); assert.equal(s.root.scrollTop, 20);
+  video.parentNode = { localName: 'shreddit-player' };
+  await s.state(true, 80, false); await s.tick(20);
+  assert.equal(starts, 0); assert.equal(s.root.scrollTop, 40);
 });
 
 test('partially visible and offscreen videos retain normal speed', async () => {
@@ -338,7 +383,35 @@ test('background controls, delayed ticks, pause and navigation', async () => {
   assert.equal(messages.length, routed);
   now = 10000; timer(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(messages.at(-1).distance, 160);
+  await handler({ type: 'control', action: 'skip' }, { tab: { id: 1 } });
+  assert.equal(messages.at(-1).type, 'scroll-skip');
+  await handler({ type: 'control', action: 'stop' }, { tab: { id: 2 } });
+  assert.equal((await control('status')).status, 'running');
   await control('pause'); const count = messages.length; timer(); assert.equal(messages.length, count);
   assert.equal((await control('pause')).status, 'running');
   updated(1, { status: 'loading' }); assert.equal((await control('status')).status, 'stopped');
+});
+
+
+test('toolbar survives pause and is removed on stop; skipping releases media once', async () => {
+  const s = setup();
+  const host = s.document.documentElement.children.at(-1);
+  assert.equal(host.isConnected, true);
+  const video = s.addVideo();
+  await s.tick(20);
+  await s.skip();
+  await s.tick(20); await s.tick(20);
+  assert.equal(s.root.scrollTop, 40);
+  const gallery = s.addGallery(150);
+  s.time(250);
+  await s.tick(20);
+  await s.skip();
+  await s.tick(20); await s.tick(20);
+  assert.equal(s.root.scrollTop, 85);
+  assert.equal(gallery.clicks, 0);
+  await s.paused();
+  assert.equal(host.isConnected, true);
+  assert.equal(s.elements.find(element => element.tag === 'button').textContent, 'Resume');
+  await s.state(false);
+  assert.equal(host.isConnected, false);
 });

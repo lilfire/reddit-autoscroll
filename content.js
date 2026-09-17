@@ -7,6 +7,8 @@
   let remainder = 0;
   let previousDirection = 0;
   let running = false;
+  let paused = false;
+  let toolbar = null;
   let speed = 0;
   let frameId = null;
   let lastFrame = null;
@@ -29,6 +31,56 @@
   const frameVideos = new Map();
   const observedRoots = new WeakSet();
   const observer = new MutationObserver(() => { videosDirty = true; });
+
+  function updateToolbar() {
+    if (!running && !paused) { toolbar?.host.remove(); toolbar = null; return; }
+    if (!toolbar) {
+      const host = document.createElement("div");
+      host.style.cssText = "all:initial!important;position:fixed!important;top:8px!important;left:50%!important;transform:translateX(-50%)!important;z-index:2147483647!important;";
+      const root = host.attachShadow({ mode: "closed" });
+      const style = document.createElement("style");
+      style.textContent = ":host{color-scheme:light} .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 32px);padding:10px 12px;background:#18251f;color:white;border:1px solid #507565;border-radius:12px;box-shadow:0 4px 18px #0006;font:14px system-ui,sans-serif} button{font:inherit;padding:6px 10px;border:1px solid #739c88;border-radius:6px;background:#264d3b;color:white;cursor:pointer} button:focus-visible{outline:2px solid white;outline-offset:2px} button:disabled{opacity:.5;cursor:default}";
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.setAttribute("role", "toolbar");
+      bar.setAttribute("aria-label", "Scroll controls");
+      const status = document.createElement("span");
+      bar.append(status);
+      const buttons = {};
+      for (const [action, label] of [["pause", "Pause"], ["stop", "Stop"], ["skip", "Skip wait"]]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const result = await browser.runtime.sendMessage({ type: "control", action });
+            if (result?.error) throw new Error(result.error);
+          } catch { status.textContent = "Control failed. Try again."; }
+          finally { button.disabled = false; }
+        });
+        buttons[action] = button;
+        bar.append(button);
+      }
+      root.append(style, bar);
+      toolbar = { host, status, buttons };
+    }
+    if (!toolbar.host.isConnected) document.documentElement.append(toolbar.host);
+    const label = paused ? "Paused" : hold ? (hold.mode === "waiting" ? "Waiting for video" : "Scrolling slowly for video") : galleryHold && waitForImages ? "Viewing images" : "Scrolling";
+    if (toolbar.status.textContent !== label) toolbar.status.textContent = label;
+    toolbar.buttons.pause.textContent = paused ? "Resume" : "Pause";
+    toolbar.buttons.skip.disabled = !running || !(hold || galleryHold);
+  }
+
+  function skipWait() {
+    if (hold) watched.set(hold.video, hold.source);
+    if (galleryHold) viewedGalleries.add(galleryHold.gallery);
+    hold = null;
+    galleryHold = null;
+    remainder = 0;
+    edgeSince = null;
+    updateToolbar();
+  }
 
   function scanVideos() {
     const now = Date.now();
@@ -92,10 +144,22 @@
     for (const [key, video] of frameVideos) if (now - video.reportAt >= 2000) frameVideos.delete(key);
     for (const video of [...videos, ...frameVideos.values()]) {
       const source = video.currentSrc || video.src || "";
-      if (video.ended || video.error || watched.get(video) === source || (video.paused && !video.autoplay)) continue;
+      if (video.ended || video.error || watched.get(video) === source) continue;
+      let redditPlayer = false;
+      if (!video.remote) {
+        for (let node = video; node; node = node.parentNode || node.getRootNode?.().host) {
+          if (node.localName === 'shreddit-player') { redditPlayer = true; break; }
+        }
+      }
+      if (video.paused && !video.autoplay && !redditPlayer) continue;
       const visible = videoVisibility(video);
       if (visible === 1) {
         hold = { video, source, position: video.currentTime, startedAt: now, progressAt: now };
+        if (redditPlayer && video.paused && !video.autoplay) {
+          // Start once per hold; blocked playback uses the existing pause timeout.
+          video.muted = true;
+          try { video.play()?.catch(() => {}); } catch {}
+        }
         edgeSince = null;
         return videoSpeedFactor;
       }
@@ -201,6 +265,7 @@
     frameId = null;
     if (!running || document.hidden || Date.now() - lastHeartbeat > 2000) { lastFrame = null; return; }
     if (lastFrame !== null) move(speed * Math.min((time - lastFrame) / 1000, 0.05));
+    updateToolbar();
     lastFrame = time;
     frameId = requestAnimationFrame(animate);
   }
@@ -271,14 +336,21 @@
       return Promise.resolve({ ok: true });
     }
     if (message.type === "scroll-reset") {
+      paused = false;
       running = false; cancelAnimation(); target = null; edgeSince = null; previousHeight = 0; remainder = 0; previousDirection = 0;
       hold = null; watched = new WeakMap(); videosDirty = true;
       galleryHold = null; viewedGalleries = new WeakSet();
       frameVideos.clear();
+      updateToolbar();
+      return Promise.resolve({ ok: true });
+    }
+    if (message.type === "scroll-skip") {
+      if (running) skipWait();
       return Promise.resolve({ ok: true });
     }
     if (message.type === "scroll-state") {
       running = message.running;
+      paused = message.paused === true;
       speed = message.speed * message.direction;
       waitForVideos = message.waitForVideos !== false;
       const percent = Number(message.videoSpeedPercent ?? 25);
@@ -294,11 +366,13 @@
       if (!running) galleryHold = null;
       lastHeartbeat = Date.now();
       cancelAnimation(); ensureAnimation();
+      updateToolbar();
       return Promise.resolve({ ok: true });
     }
     if (message.type !== "scroll-tick") return;
     if (!running) return Promise.resolve({ end: false });
     lastHeartbeat = Date.now();
+    updateToolbar();
     if (!message.background && document.hidden) { edgeSince = null; return Promise.resolve({ end: false }); }
     if (document.hidden) return Promise.resolve({ ...move(message.distance), viewport: { width: innerWidth, height: innerHeight } });
     ensureAnimation();
