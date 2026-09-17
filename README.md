@@ -1,40 +1,72 @@
-# Scroll uten fokus
+# Scroll Without Focus
 
-Firefox-utvidelse som scroller en valgt fane uten å ta mus- eller tastaturfokus.
+A Firefox extension that automatically scrolls a selected tab without taking mouse or keyboard focus.
 
-## Installer lokalt
+## Local installation
 
-1. Åpne `about:debugging#/runtime/this-firefox` i Firefox.
-2. Velg **Last inn midlertidig tillegg** og åpne `manifest.json` i denne mappen.
-3. Åpne en vanlig nettside, klikk utvidelsesikonet og trykk **Start / oppdater**.
-4. Bytt fane eller bruk et annet program. Utvidelsen fortsetter så lenge Firefox kjører og siden er lastet.
+1. Open `about:debugging#/runtime/this-firefox` in Firefox.
+2. Select **Load Temporary Add-on** and open `manifest.json` from this folder.
+3. Open a regular website, click the extension icon, and select **Start / oppdater** (Start / update).
+4. Switch tabs or use another application. Scrolling continues while Firefox is running and the page remains loaded.
 
-En midlertidig installasjon fjernes når Firefox avsluttes. ZIP-filen i `dist` er kildepakken for signering hos Mozilla; vanlig Firefox krever signering for permanent installasjon.
+A temporary installation is removed when Firefox closes. A ZIP file in `dist`, when available, is the source package for Mozilla signing. Standard Firefox requires signing for permanent installation.
 
-## Oppførsel
+The extension interface currently uses Norwegian labels. Their English meanings are included below where relevant.
 
-- En kontrollinje �verst p� siden viser status mens �kten kj�rer. Pause/Fortsett og Stopp styrer denne fanen. �Skip wait� hopper over den aktive videoen eller bildekarusellen for resten av �kten; nye medier ventes fortsatt p�. Linjen blir v�rende p� pause og fjernes ved stopp.
-- Hastighet: 1–2000 piksler per sekund; oppover eller nedover.
-- Videohastighet kan settes til 1–100 % av normal hastighet i popupen; standard er 25 %. For eksempel gir 80 piksler/sekund og 50 % videohastighet 40 piksler/sekund ved video. Trykk «Start / oppdater» for å bruke og lagre innstillingen. Stoppen med sikkerhetsmargin gjelder ved alle videohastigheter.
-- Alt+Shift+S starter eller pauser den valgte fanen. Snarveien gjelder inne i Firefox.
-- Flere faner kan startes separat. Popupen viser status for den valgte fanen.
-- Synlige sider scroller med `requestAnimationFrame`, synkronisert med skjermoppdateringene, også når et annet program har fokus. Lange animasjonsforsinkelser begrenses til 50 ms for å unngå hopp.
-- I skjulte faner sender bakgrunnsskriptet scrollsignaler hvert 250 ms. Forsinkelser gir maksimalt to sekunders scrollavstand per signal. Synlige sider bruker signalene som livstegn, uten ekstra scrollsteg.
-- «Fortsett i skjulte faner» kan slås av. Manglende vindusfokus alene pauser ikke scrolling.
-- Navigasjon, lukking av fanen og omstart stopper økten. Hastighetsinnstillingene lagres.
-- Ved bunnen/toppen venter utvidelsen 15 sekunder på nytt innhold før den stopper.
-- Hele siden prioriteres; ellers velges det største synlige scrollbare feltet.
-- Reddit-bildekaruseller (`gallery-carousel`) bytter automatisk til neste bilde når hele karusellen er synlig i scrollfeltet (to pikslers toleranse). «Vent på bilder» er et eget valg, på som standard. Slås det av, scroller siden med normal hastighet uten å vente på karusellen; automatisk bildebytte kan fortsatt være på. Popupen lar deg slå automatisk bildebytte av/på, velge scrollhastighet på 1–100 % og visningstid på 0,5–60 sekunder per bilde. Standard er på, 25 % hastighet og tre sekunder per bilde. Innstillingene lagres når du trykker «Start / oppdater». Først hvis karusellen når kanten av scrollfeltet før bildene er ferdig vist, pauses scrolling. Etter siste bilde gjenopprettes normal hastighet. Reddits egne neste-knapper brukes, også i åpne shadow DOM-trær. En karusell vises én gang per scrolløkt. Hvis knappen ikke virker, karusellen fjernes eller den forlater bildet, slippes ventingen; maksimal ventetid er minst to minutter og utvides for karuseller med lengre samlet visningstid. Dette fungerer uavhengig av «Vent på videoer».
-- «Vent på videoer» er på som standard. Nye HTML-videoer oppdages også i åpne shadow DOM-trær. Normal hastighet beholdes frem til hele videoen er i bildet (med to pikslers toleranse). Deretter scroller siden med 25 % hastighet. Er videoen fortsatt ikke ferdig, pauses scrolling med 64 pikslers sikkerhetsmargin til kanten av scrollfeltet. Ferdige videoer gjenoppretter normal hastighet med en gang. Videoer større enn scrollfeltet pauses når de fyller den tilgjengelige synlige flaten. Redgifs-iframe rapporterer avspilling og videogeometri hvert 50 ms; den ytre scrollmotoren måler spillerens plassering ved hver animasjonsoppdatering og begrenser scrollavstanden direkte. Spillere som ikke kan knyttes sikkert til en iframe, får maksimalt fire piksler langsom scrolling før venting. Popupen viser avspillingstid og om scrolling går sakte eller venter.
-- Reddit-videoer og GIF-er i `shreddit-player` uten autoplay startes lydløst når hele videoen er i bildet og «Vent på videoer» er på. De bruker samme hastighet, sikkerhetsmargin og venting som andre videoer. Dette krever at spillerens HTML-video er tilgjengelig, også gjennom åpne shadow DOM-trær.
-- Videoer som looper slippes etter én runde. Ventingen avsluttes også ved feil, fjerning, fem sekunder med pauset avspilling, 15 sekunder uten fremdrift eller maksimalt to minutter per video. Hvis nettleseren blokkerer avspilling, fortsetter scrolling etter tidsavbruddet.
-- En ferdig eller tidsavbrutt video ventes ikke på igjen før en ny scrolløkt startes eller videokilden endres. Innebygde Redgifs-spillere støttes med et eget innholdsskript i spillerens iframe. Det rapporterer avspilling og faktisk synlighet til scrollmotoren. Dette krever nettstedstillatelse for `redgifs.com` og underdomener. Blob-videoer støttes uten tilgang til selve videofilen. Andre iframe-spillere og lukket shadow DOM støttes ikke.
-- Interne Firefox-sider, Mozilla Add-ons og andre beskyttede sider tillater ikke innholdsskript.
+## Behavior
 
-Firefox og operativsystemet kan begrense kjøring når vinduet er minimert eller fanen er skjult. Sider kan også stoppe innlasting av nytt innhold når de er skjult. Jevn bakgrunnsanimering, scrolling i utlastede faner og kjøring under dvale kan ikke garanteres. Manifest V2 brukes for en vedvarende Firefox-bakgrunnsside; utvidelsen er ikke laget for Chrome.
+- A toolbar at the top of the page shows session status. Pause/resume and stop control that tab. **Skip wait** skips the current video or image carousel for the rest of the session; new media are still waited for. The toolbar remains while paused and disappears when stopped.
+- Scroll speed ranges from 1 to 2000 pixels per second, upward or downward.
+- **Alt+Shift+S** starts or pauses the selected tab within Firefox.
+- Multiple tabs can run separate sessions. The popup shows the selected tab's status.
+- Select **Start / oppdater** to apply and save settings.
+- Visible pages use `requestAnimationFrame`, synchronized with display refreshes, even when another application has focus. Animation delays are capped at 50 ms to avoid jumps.
+- Hidden tabs receive background scroll signals every 250 ms. Delays produce at most two seconds of scrolling per signal. Visible pages treat these signals as heartbeats without extra scroll steps.
+- **Fortsett i skjulte faner** (Continue in hidden tabs) can be disabled. Losing window focus alone does not pause scrolling.
+- Navigation, closing the tab, and restarting Firefox stop the session. Speed settings are saved.
+- At the top or bottom, the extension waits 15 seconds for new content before stopping.
+- The full page is preferred; otherwise, the largest visible scrollable area is selected.
 
-## Verifisering
+### Image carousels
 
-Kjør `node --test tests/*.test.cjs`. Testene simulerer nettleser-API og scrollfelt; de erstatter ikke testing i Firefox.
+Reddit image carousels (`gallery-carousel`) automatically advance when the entire carousel is visible within the scroll area, with a two-pixel tolerance.
 
-Manuell test i Firefox: start på en lang side, bytt fane i 30 sekunder og kontroller endret scrollposisjon. Gjenta med et annet program i fokus og med minimert Firefox. Prøv pause, fortsett, stopp, navigasjon og en Reddit-feed med innlasting av nye innlegg. Kontroller også et scrollbart felt og en beskyttet side. For video: bekreft at en ny autoplay-video holdes i bildet, at popupen viser fremdrift, at scrolling fortsetter ved slutt, og at «Vent på videoer» kan slås av. Prøv også en loop og blokkert autoplay.
+**Vent på bilder** (Wait for images) is enabled by default. Disabling it keeps normal scroll speed without waiting for the carousel; automatic image advancement can remain enabled independently. The popup lets you toggle advancement, choose 1-100% of normal scroll speed, and set 0.5-60 seconds per image. Defaults are advancement enabled, 25% speed, and three seconds per image.
+
+Scrolling pauses only if the carousel reaches the edge of the scroll area before all images have been displayed. Normal speed returns after the last image. Reddit's own next buttons are used, including those in open shadow DOM trees. Each carousel is shown once per scroll session.
+
+Waiting ends if the next button fails, the carousel is removed, or it leaves view. The maximum wait is at least two minutes and increases for carousels with longer total display times. Image waiting works independently of video waiting.
+
+### Videos
+
+**Vent på videoer** (Wait for videos) is enabled by default. New HTML videos are detected, including those in open shadow DOM trees. Normal speed continues until the entire video is visible, with a two-pixel tolerance. Scrolling then uses the configured video speed: 1-100% of normal speed, with a default of 25%. For example, 80 pixels per second with 50% video speed produces 40 pixels per second while viewing a video.
+
+If playback is unfinished, scrolling pauses with a 64-pixel safety margin from the edge of the scroll area. This margin applies at every video speed. Completed videos restore normal speed immediately. Videos larger than the scroll area pause scrolling when they fill the available visible area.
+
+Redgifs iframes report playback and video geometry every 50 ms. The outer scroll engine measures player position on every animation frame and directly limits scroll distance. Players that cannot be reliably matched to an iframe allow at most four pixels of slow scrolling before waiting. The popup shows playback time and whether scrolling is slowed or waiting.
+
+Reddit videos and GIFs in `shreddit-player` without autoplay start muted when fully visible and video waiting is enabled. They use the same speed, safety margin, and waiting behavior as other videos. This requires access to the player's HTML video, including through open shadow DOM trees.
+
+Looping videos are released after one cycle. Waiting also ends on an error, removal, five seconds of paused playback, 15 seconds without progress, or a maximum of two minutes per video. If the browser blocks playback, scrolling resumes after the timeout. Completed or timed-out videos are not waited for again until a new session starts or the video source changes.
+
+Embedded Redgifs players use a dedicated content script in the player iframe to report playback and actual visibility. This requires site permission for `redgifs.com` and its subdomains. Blob videos work without access to the video file itself. Other iframe players and closed shadow DOM are unsupported.
+
+## Limitations
+
+Internal Firefox pages, Mozilla Add-ons, and other protected pages do not allow content scripts.
+
+Firefox and the operating system may throttle execution when the window is minimized or the tab is hidden. Websites may also stop loading new content while hidden. Smooth background animation, scrolling in unloaded tabs, and execution during system sleep cannot be guaranteed.
+
+The extension uses Manifest V2 for a persistent Firefox background page and is designed for Firefox.
+
+## Verification
+
+Run `node --test tests/*.test.cjs`. The tests simulate browser APIs and scroll areas; they do not replace testing in Firefox.
+
+For manual testing in Firefox:
+
+1. Start scrolling on a long page, switch tabs for 30 seconds, and confirm the scroll position changes.
+2. Repeat with another application focused and with Firefox minimized.
+3. Try pause, resume, stop, navigation, and a Reddit feed that loads new posts.
+4. Check a scrollable area within a page and a protected page.
+5. Confirm that a new autoplay video stays in view, the popup shows playback progress, scrolling resumes when playback ends, and video waiting can be disabled. Also try a looping video and blocked autoplay.
