@@ -10,4 +10,4 @@
 
 Release-workflowen kjører testene og publiserer en GitHub Release med automatisk genererte versjonsnotater og `reddit-autoscroll-v1.0.7.zip`. ZIP-pakken inneholder kun utvidelsesfilene og er usignert. Permanent installasjon i vanlig Firefox krever signering hos Mozilla.
 
-En eksisterende tagg kan også publiseres via **Actions → Release → Run workflow** ved å oppgi taggen. Taggen må inneholde workflowen, og release må ikke allerede finnes. Ingen ekstra secrets kreves; workflowen bruker GitHubs innebygde token.
+Du kan også velge **Actions → Release → Run workflow**, velge branch og la taggfeltet stå tomt. Workflowen bruker versjonen i `manifest.json` og oppretter taggen fra valgt commit hvis den ikke finnes. En eksisterende tagg må peke på samme commit. Oppgi en eksisterende tagg i feltet hvis du vil publisere akkurat den versjonen. Release må ikke allerede finnes. Ingen ekstra secrets kreves; workflowen bruker GitHubs innebygde token.
