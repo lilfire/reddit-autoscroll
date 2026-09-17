@@ -27,6 +27,7 @@
   let videosDirty = true;
   let lastVideoScan = -Infinity;
   let watched = new WeakMap();
+  let redditStarts = new WeakMap();
   let hold = null;
   const frameVideos = new Map();
   const observedRoots = new WeakSet();
@@ -145,26 +146,68 @@
     for (const video of [...videos, ...frameVideos.values()]) {
       const source = video.currentSrc || video.src || "";
       if (video.ended || video.error || watched.get(video) === source) continue;
-      let redditPlayer = false;
+      let redditPlayer = null;
       if (!video.remote) {
         for (let node = video; node; node = node.parentNode || node.getRootNode?.().host) {
-          if (node.localName === 'shreddit-player') { redditPlayer = true; break; }
+          if (node.localName === 'shreddit-player') { redditPlayer = node; break; }
         }
       }
       if (video.paused && !video.autoplay && !redditPlayer) continue;
       const visible = videoVisibility(video);
       if (visible === 1) {
+        const playerSource = redditPlayer?.getAttribute?.('src') || source;
+        const previousStart = redditPlayer && redditStarts.get(redditPlayer);
+        if (previousStart?.source === playerSource && now - previousStart.startedAt >= 15000 &&
+            video.currentTime <= previousStart.position + 0.05) {
+          watched.set(video, source);
+          continue;
+        }
         hold = { video, source, position: video.currentTime, startedAt: now, progressAt: now };
         if (redditPlayer && video.paused && !video.autoplay) {
-          // Start once per hold; blocked playback uses the existing pause timeout.
-          video.muted = true;
-          try { video.play()?.catch(() => {}); } catch {}
+          if (!previousStart || previousStart.source !== playerSource) {
+            redditStarts.set(redditPlayer, { source: playerSource, startedAt: now, position: video.currentTime });
+            startRedditVideo(redditPlayer, video);
+          }
         }
         edgeSince = null;
         return videoSpeedFactor;
       }
     }
     return 1;
+  }
+
+  function startRedditVideo(player, video) {
+    video.muted = true;
+    // Let Reddit initialize its lazy media source and update its loading UI.
+    const roots = [player];
+    if (player.shadowRoot) roots.push(player.shadowRoot);
+    for (let i = 0; i < roots.length; i++) {
+      for (const element of roots[i].querySelectorAll?.('*') || []) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      }
+      for (const button of roots[i].querySelectorAll?.('button, [role="button"]') || []) {
+        const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''}`;
+        if (/(\bplay\b|\bspill av\b)/i.test(label) && !/pause/i.test(label) &&
+            !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
+          button.click();
+          return;
+        }
+      }
+    }
+    // GIF players may expose the MP4 only on the host/light-DOM source.
+    if (!video.currentSrc && !video.getAttribute?.('src') && !video.querySelector?.('source[src]')) {
+      const source = player.getAttribute?.('src') || player.querySelector?.('source[src]')?.getAttribute('src');
+      if (player.hasAttribute?.('gif') && source) {
+        try {
+          const url = new URL(source, document.baseURI);
+          if (url.protocol === 'https:' && (url.pathname.endsWith('.mp4') || url.searchParams.get('format') === 'mp4')) {
+            video.src = url.href;
+            video.load();
+          }
+        } catch {}
+      }
+    }
+    try { video.play()?.catch(() => {}); } catch {}
   }
 
   function videoTravel(direction) {
@@ -338,7 +381,7 @@
     if (message.type === "scroll-reset") {
       paused = false;
       running = false; cancelAnimation(); target = null; edgeSince = null; previousHeight = 0; remainder = 0; previousDirection = 0;
-      hold = null; watched = new WeakMap(); videosDirty = true;
+      hold = null; watched = new WeakMap(); redditStarts = new WeakMap(); videosDirty = true;
       galleryHold = null; viewedGalleries = new WeakSet();
       frameVideos.clear();
       updateToolbar();

@@ -28,7 +28,7 @@ function setup() {
   const document = { scrollingElement: root, hidden: true, shadowHosts: [], querySelectorAll(selector) { return selector === 'video' ? videoElements : selector === 'gallery-carousel' ? galleryElements : selector === 'iframe' ? playerFrames : this.shadowHosts; }, addEventListener(type, fn) { visibility = fn; } };
   document.createElement = createElement;
   document.documentElement = createElement('html');
-  const context = vm.createContext({ document, innerWidth: 800, innerHeight: 500, MutationObserver: class { constructor(fn) { mutation = fn; } observe() {} }, Date: { now: () => now }, requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame(id) { frames.delete(id); }, browser: { runtime: { onMessage: { addListener(fn) { listener = fn; } } } } });
+  const context = vm.createContext({ document, URL, innerWidth: 800, innerHeight: 500, MutationObserver: class { constructor(fn) { mutation = fn; } observe() {} }, Date: { now: () => now }, requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame(id) { frames.delete(id); }, browser: { runtime: { onMessage: { addListener(fn) { listener = fn; } } } } });
   const source = fs.readFileSync(path.join(__dirname, '../content.js'), 'utf8');
   vm.runInContext(source, context);
   listener({ type: 'scroll-state', running: true, speed: 80, direction: 1 });
@@ -104,6 +104,41 @@ test('blocked Reddit playback times out without repeated start attempts', async 
   await s.tick(20); await s.tick(20); assert.equal(starts, 1);
   s.time(5000); await s.tick(20); assert.equal(s.root.scrollTop, 20);
   await s.tick(20); assert.equal(starts, 1);
+});
+
+test('Reddit lazy player starts with its own button instead of raw video play', async () => {
+  const s = setup(); let clicks = 0;
+  const button = { getAttribute: name => name === 'aria-label' ? 'Play video' : null,
+    click() { clicks++; video.paused = false; video.currentSrc = 'initialized.mp4'; } };
+  const player = { localName: 'shreddit-player', getAttribute: () => 'host.mp4',
+    shadowRoot: { querySelectorAll: selector => selector === 'button, [role="button"]' ? [button] : [] } };
+  const video = s.addVideo({ parentNode: player, paused: true, autoplay: false, currentSrc: '', currentTime: 0,
+    play() { assert.fail('must initialize through Reddit'); } });
+  await s.tick(20); assert.equal(clicks, 1); assert.equal(video.muted, true);
+  video.currentTime = 2; await s.tick(20);
+  video.ended = true; await s.tick(20); assert.equal(s.root.scrollTop, 20);
+});
+
+test('Reddit GIF initializes an empty internal video with the supplied MP4 source', async () => {
+  const s = setup(); let loads = 0; let starts = 0;
+  const source = 'https://preview.redd.it/example.gif?width=400&format=mp4&s=example';
+  const player = { localName: 'shreddit-player', hasAttribute: name => name === 'gif',
+    getAttribute: name => name === 'src' ? source : null };
+  const video = s.addVideo({ parentNode: player, paused: true, autoplay: false, currentSrc: '', currentTime: 0,
+    load() { loads++; }, play() { starts++; this.paused = false; return Promise.resolve(); } });
+  await s.tick(20); assert.equal(video.src, source); assert.equal(loads, 1); assert.equal(starts, 1);
+  await s.tick(20); assert.equal(starts, 1);
+});
+
+test('replaced internal videos cannot restart the Reddit loading deadline', async () => {
+  const s = setup(); let starts = 0;
+  const player = { localName: 'shreddit-player', getAttribute: () => 'https://preview.redd.it/example.gif?format=mp4' };
+  const options = { parentNode: player, autoplay: false, paused: true, currentTime: 0,
+    play() { starts++; return Promise.resolve(); } };
+  const first = s.addVideo(options); await s.tick(20); first.isConnected = false;
+  s.time(1000); s.addVideo({ ...options, currentSrc: 'replacement.mp4' }); await s.tick(20);
+  assert.equal(starts, 1);
+  s.time(15000); await s.tick(20); assert.equal(s.root.scrollTop, 20);
 });
 
 test('automatic start respects video waiting and ignores ordinary paused videos', async () => {
