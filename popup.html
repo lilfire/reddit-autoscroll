@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="nb">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Scroll uten fokus</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <h1>Scroll uten fokus</h1>
+  <p>Styr scrolling i denne fanen.</p>
+  <form id="controls">
+    <label for="speed">Hastighet (piksler per sekund)</label>
+    <input id="speed" type="number" min="1" max="2000" value="80" required>
+    <label for="direction">Retning</label>
+    <select id="direction"><option value="1">Nedover</option><option value="-1">Oppover</option></select>
+    <label class="check"><input id="background" type="checkbox" checked> Fortsett i skjulte faner</label>
+    <label class="check"><input id="videos" type="checkbox" checked> Vent på videoer</label>
+    <label for="video-speed">Videohastighet (% av normal hastighet)</label>
+    <input id="video-speed" type="number" min="1" max="100" step="1" value="25" required>
+    <label class="check"><input id="images" type="checkbox" checked> Bytt bilder automatisk i karuseller</label>
+    <label class="check"><input id="wait-images" type="checkbox" checked> Vent på bilder</label>
+    <label for="image-speed">Bildehastighet (% av normal scrollhastighet)</label>
+    <input id="image-speed" type="number" min="1" max="100" step="1" value="25" required>
+    <label for="image-seconds">Sekunder per bilde</label>
+    <input id="image-seconds" type="number" min="0.5" max="60" step="0.5" value="3" required>
+    <div class="buttons"><button type="submit">Start / oppdater</button><button id="pause" type="button">Pause</button><button id="stop" type="button">Stopp</button></div>
+  </form>
+  <p id="status" role="status" aria-live="polite">Henter status …</p>
+  <small>Alt + Shift + S: start/pause.<br>Skjulte faner kan scrolle i større steg. Scrolling stopper ved navigasjon.</small>
+  <script src="popup.js"></script>
+</body>
+</html>
