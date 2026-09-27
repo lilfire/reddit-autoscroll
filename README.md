@@ -51,6 +51,10 @@ Looping videos are released after one cycle. Waiting also ends on an error, remo
 
 Embedded Redgifs players use a dedicated content script in the player iframe to report playback and actual visibility. This requires site permission for `redgifs.com` and its subdomains. Blob videos work without access to the video file itself. Other iframe players and closed shadow DOM are unsupported.
 
+### Redgifs full-screen view
+
+On redgifs.com, the site's own full-screen view (not browser full screen) shows one item per screen in a snap-scrolling feed, so continuous scrolling is replaced by stepping through items. With video waiting enabled, each video plays once (paused videos are started, muted if the browser blocks sound) using the same release rules as above; items without video, or all items when video waiting is off, are shown for the configured seconds per image. The extension then presses the site's **Next video** button (or **Previous** when scrolling up), falling back to a snap scroll. If the item does not change for 15 seconds, scrolling stops. **Skip wait** moves on immediately. Leaving full screen returns to normal scrolling.
+
 ## Limitations
 
 Internal Firefox pages, Mozilla Add-ons, and other protected pages do not allow content scripts.

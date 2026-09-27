@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 
-function setup() {
+function setup(extra = {}) {
   let listener, now = 0;
   let visibility;
   let nextFrame = 0;
@@ -26,9 +26,10 @@ function setup() {
   const root = { scrollTop: 0, scrollHeight: 2000, clientHeight: 500, isConnected: true,
     scrollTo({ top }) { this.scrollTop = Math.max(0, Math.min(top, this.scrollHeight - this.clientHeight)); } };
   const document = { scrollingElement: root, hidden: true, shadowHosts: [], querySelectorAll(selector) { return selector === 'video' ? videoElements : selector === 'gallery-carousel' ? galleryElements : selector === 'iframe' ? playerFrames : this.shadowHosts; }, addEventListener(type, fn) { visibility = fn; } };
+  Object.assign(document, extra.document);
   document.createElement = createElement;
   document.documentElement = createElement('html');
-  const context = vm.createContext({ document, URL, innerWidth: 800, innerHeight: 500, MutationObserver: class { constructor(fn) { mutation = fn; } observe() {} }, Date: { now: () => now }, requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame(id) { frames.delete(id); }, browser: { runtime: { onMessage: { addListener(fn) { listener = fn; } } } } });
+  const context = vm.createContext({ document, URL, location: extra.location, innerWidth: 800, innerHeight: 500, MutationObserver: class { constructor(fn) { mutation = fn; } observe() {} }, Date: { now: () => now }, requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame(id) { frames.delete(id); }, browser: { runtime: { onMessage: { addListener(fn) { listener = fn; } } } } });
   const source = fs.readFileSync(path.join(__dirname, '../content.js'), 'utf8');
   vm.runInContext(source, context);
   listener({ type: 'scroll-state', running: true, speed: 80, direction: 1 });
@@ -449,4 +450,53 @@ test('toolbar survives pause and is removed on stop; skipping releases media onc
   assert.equal(s.elements.find(element => element.tag === 'button').textContent, 'Resume');
   await s.state(false);
   assert.equal(host.isConnected, false);
+});
+
+function redgifsFullScreen(items, { fullScreen = true } = {}) {
+  let index = 0;
+  const feed = { clientHeight: 500, scrolls: 0, getBoundingClientRect: () => ({ top: 0 }),
+    querySelectorAll: () => items, scrollBy() { this.scrolls++; index = Math.min(index + 1, items.length - 1); } };
+  items.forEach((item, i) => {
+    item.getBoundingClientRect = () => ({ top: (i - index) * 500, height: 500 });
+    item.querySelector = () => item.video || null;
+  });
+  const next = { clicks: 0, getAttribute: () => null, click() { this.clicks++; index = Math.min(index + 1, items.length - 1); } };
+  const document = { querySelector: selector => !fullScreen ? null :
+    selector === '.App.fullScreen .previewFeed' ? feed : selector === '.fullScreenNav .nextButton' ? next : null };
+  return { feed, next, current: () => index, extra: { document, location: { hostname: 'www.redgifs.com' } } };
+}
+
+test('Redgifs full screen plays each video once, shows images, then ends at the last item', async () => {
+  const video = { currentTime: 1, duration: 10, paused: false, ended: false, currentSrc: 'a.mp4' };
+  const r = redgifsFullScreen([{ video }, {}, {}]);
+  const s = setup(r.extra); await s.state(true, 80, true, 25, { imageSeconds: 3 });
+  let result = await s.tick(20);
+  assert.equal(r.next.clicks, 0); assert.equal(result.video.currentTime, 1);
+  video.currentTime = 9; s.time(1000); await s.tick(20); assert.equal(r.next.clicks, 0);
+  video.currentTime = 0.2; s.time(2000); await s.tick(20);
+  assert.equal(r.next.clicks, 1); assert.equal(r.current(), 1);
+  s.time(3000); await s.tick(20); s.time(5900); await s.tick(20); assert.equal(r.next.clicks, 1);
+  s.time(6100); await s.tick(20); assert.equal(r.next.clicks, 2); assert.equal(r.current(), 2);
+  s.time(9200); await s.tick(20); s.time(12300); await s.tick(20); assert.equal(r.next.clicks, 3);
+  s.time(14400); await s.tick(20); assert.equal(r.feed.scrolls, 1);
+  s.time(27200); result = await s.tick(20); assert.equal(result.end, false);
+  s.time(27300); result = await s.tick(20); assert.equal(result.end, true);
+  assert.equal(s.root.scrollTop, 0);
+});
+
+test('Redgifs full screen starts paused videos, honours skip and ignores videos when waiting is off', async () => {
+  let plays = 0;
+  const video = { currentTime: 0, duration: 10, paused: true, currentSrc: 'a.mp4', play() { plays++; this.paused = false; return Promise.resolve(); } };
+  const r = redgifsFullScreen([{ video }, { video: { ...video } }, {}]);
+  const s = setup(r.extra); await s.state(true, 80, true, 25, { imageSeconds: 3 });
+  await s.tick(20); await s.tick(20); assert.equal(plays, 1); assert.equal(r.next.clicks, 0);
+  await s.skip(); await s.tick(20); assert.equal(r.next.clicks, 1);
+  await s.state(true, 80, false, 25, { imageSeconds: 3 });
+  s.time(100); await s.tick(20); s.time(3100); await s.tick(20); assert.equal(r.next.clicks, 2);
+});
+
+test('Redgifs outside full screen keeps continuous scrolling', async () => {
+  const r = redgifsFullScreen([{}], { fullScreen: false });
+  const s = setup(r.extra); await s.tick(20);
+  assert.equal(s.root.scrollTop, 20); assert.equal(r.next.clicks, 0);
 });

@@ -29,6 +29,8 @@
   let watched = new WeakMap();
   let redditStarts = new WeakMap();
   let hold = null;
+  let page = null;
+  let pagedFeed = null;
   const frameVideos = new Map();
   const observedRoots = new WeakSet();
   const observer = new MutationObserver(() => { videosDirty = true; });
@@ -67,15 +69,16 @@
       toolbar = { host, status, buttons };
     }
     if (!toolbar.host.isConnected) document.documentElement.append(toolbar.host);
-    const label = paused ? "Paused" : hold ? (hold.mode === "waiting" ? "Waiting for video" : "Scrolling slowly for video") : galleryHold && waitForImages ? "Viewing images" : "Scrolling";
+    const label = paused ? "Paused" : pagedFeed ? (hold ? "Watching video" : "Showing item") : hold ? (hold.mode === "waiting" ? "Waiting for video" : "Scrolling slowly for video") : galleryHold && waitForImages ? "Viewing images" : "Scrolling";
     if (toolbar.status.textContent !== label) toolbar.status.textContent = label;
     toolbar.buttons.pause.textContent = paused ? "Resume" : "Pause";
-    toolbar.buttons.skip.disabled = !running || !(hold || galleryHold);
+    toolbar.buttons.skip.disabled = !running || !(hold || galleryHold || page);
   }
 
   function skipWait() {
     if (hold) watched.set(hold.video, hold.source);
     if (galleryHold) viewedGalleries.add(galleryHold.gallery);
+    if (page) page.since = -Infinity;
     hold = null;
     galleryHold = null;
     remainder = 0;
@@ -131,12 +134,7 @@
       const source = video.currentSrc || video.src || "";
       if (source !== hold.source || !video.isConnected || videoVisibility(video) === 0) hold = null;
       else {
-        const position = video.currentTime;
-        const wrapped = position < hold.position - 0.5;
-        if (Math.abs(position - hold.position) > 0.05) { hold.progressAt = now; hold.position = position; }
-        const finished = video.ended || (Number.isFinite(video.duration) && video.duration > 0 && position >= video.duration - 0.1);
-        const pausedTooLong = video.paused && now - hold.progressAt >= 5000;
-        if (finished || wrapped || video.error || pausedTooLong || now - hold.progressAt >= 15000 || now - hold.startedAt >= 120000) {
+        if (holdFinished(now)) {
           watched.set(video, source);
           hold = null;
         } else { edgeSince = null; return videoVisibility(video) === 1 ? videoSpeedFactor : 0; }
@@ -174,6 +172,90 @@
       }
     }
     return 1;
+  }
+
+  function holdFinished(now) {
+    const video = hold.video;
+    const position = video.currentTime;
+    const wrapped = position < hold.position - 0.5;
+    if (Math.abs(position - hold.position) > 0.05) { hold.progressAt = now; hold.position = position; }
+    const finished = video.ended || (Number.isFinite(video.duration) && video.duration > 0 && position >= video.duration - 0.1);
+    const pausedTooLong = video.paused && now - hold.progressAt >= 5000;
+    return Boolean(finished || wrapped || video.error || pausedTooLong || now - hold.progressAt >= 15000 || now - hold.startedAt >= 120000);
+  }
+
+  // Redgifs' own full-screen view is a scroll-snap feed with one item per
+  // screen. Continuous scrolling snaps back, so step through items instead.
+  function redgifsFeed() {
+    const host = globalThis.location?.hostname || "";
+    if (host !== "redgifs.com" && !host.endsWith(".redgifs.com")) return null;
+    return document.querySelector?.(".App.fullScreen .previewFeed") || null;
+  }
+
+  function currentPageItem(feed) {
+    const top = feed.getBoundingClientRect().top;
+    let best = null;
+    let bestDistance = Infinity;
+    for (const item of feed.querySelectorAll(".GifPreview, .FeedModule, .injection, .bannerWrapper")) {
+      const rect = item.getBoundingClientRect();
+      if (rect.height < 60) continue;
+      const distance = Math.abs(rect.top - top);
+      if (distance < bestDistance) { best = item; bestDistance = distance; }
+    }
+    return best;
+  }
+
+  function pageVideoPending(video, now) {
+    const source = video.currentSrc || video.src || "";
+    if (video.error || watched.get(video) === source) return false;
+    if (hold?.video !== video || hold.source !== source) {
+      hold = { video, source, position: video.currentTime, startedAt: now, progressAt: now, mode: "waiting", started: false };
+    }
+    if (video.paused && !hold.started) {
+      hold.started = true;
+      try {
+        video.play()?.catch(() => {
+          // Autoplay policies only allow muted playback without a user gesture.
+          video.muted = true;
+          try { video.play()?.catch(() => {}); } catch {}
+        });
+      } catch {}
+    }
+    if (!holdFinished(now)) return true;
+    watched.set(video, source);
+    hold = null;
+    return false;
+  }
+
+  function pageAdvance(feed, direction) {
+    const button = document.querySelector(direction < 0 ? ".fullScreenNav .prevButton" : ".fullScreenNav .nextButton");
+    // Alternate with a plain snap-scroll in case the button does nothing.
+    if (page.attempts % 2 === 0 && button && !button.disabled && button.getAttribute?.("aria-disabled") !== "true") button.click();
+    else feed.scrollBy({ top: direction * feed.clientHeight, behavior: "instant" });
+    page.attempts++;
+  }
+
+  function pagedMove(feed, direction) {
+    const now = Date.now();
+    const item = currentPageItem(feed);
+    if (!item) return { end: false, video: null };
+    if (page?.item !== item) {
+      page = { item, since: now, advancedAt: null, clickedAt: -Infinity, attempts: 0 };
+      hold = null;
+    }
+    const video = waitForVideos ? item.querySelector("video") : null;
+    if (video ? pageVideoPending(video, now) : now - page.since < imageInterval) {
+      edgeSince = null;
+      return { end: false, video: videoStatus() };
+    }
+    if (now - page.clickedAt >= 2000) {
+      if (page.advancedAt === null) page.advancedAt = now;
+      page.clickedAt = now;
+      pageAdvance(feed, direction);
+    }
+    // Still on the same item long after asking for the next one: end of feed.
+    edgeSince = page.advancedAt;
+    return { end: now - page.advancedAt >= 15000, video: null };
   }
 
   function startRedditVideo(player, video) {
@@ -339,6 +421,12 @@
   }
 
   function move(distance) {
+    const feed = redgifsFeed();
+    if (feed !== pagedFeed) {
+      pagedFeed = feed;
+      target = null; hold = null; galleryHold = null; page = null; remainder = 0; edgeSince = null;
+    }
+    if (feed) return pagedMove(feed, Math.sign(speed) || 1);
     if (!target || !target.isConnected) target = findTarget();
     if (!target) return { end: true };
     const galleryActive = galleryWaiting();
@@ -383,6 +471,7 @@
       running = false; cancelAnimation(); target = null; edgeSince = null; previousHeight = 0; remainder = 0; previousDirection = 0;
       hold = null; watched = new WeakMap(); redditStarts = new WeakMap(); videosDirty = true;
       galleryHold = null; viewedGalleries = new WeakSet();
+      page = null; pagedFeed = null;
       frameVideos.clear();
       updateToolbar();
       return Promise.resolve({ ok: true });
