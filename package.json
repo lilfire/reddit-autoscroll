@@ -1,0 +1,35 @@
+{
+  "name": "reddit-autoscroll",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firefox extension that scrolls a selected tab automatically, even without focus.",
+  "scripts": {
+    "lint": "web-ext lint",
+    "build": "web-ext build",
+    "start:firefox": "web-ext run --target firefox-desktop --firefox-profile .firefox-profile --profile-create-if-missing --keep-profile-changes",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "webExt": {
+    "ignoreFiles": [
+      "tests",
+      "scripts",
+      "updates.json",
+      ".github",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "dist",
+      "web-ext-artifacts",
+      ".firefox-profile"
+    ],
+    "build": {
+      "overwriteDest": true
+    },
+    "lint": {
+      "selfHosted": true
+    }
+  },
+  "devDependencies": {
+    "web-ext": "^8.0.0"
+  }
+}

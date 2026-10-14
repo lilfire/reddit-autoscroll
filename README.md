@@ -2,14 +2,26 @@
 
 A Firefox extension that automatically scrolls a selected tab without taking mouse or keyboard focus.
 
-## Local installation
+## Installation
 
-1. Open `about:debugging#/runtime/this-firefox` in Firefox.
-2. Select **Load Temporary Add-on** and open `manifest.json` from this folder.
-3. Open a regular website, click the extension icon, and select **Start / oppdater** (Start / update).
-4. Switch tabs or use another application. Scrolling continues while Firefox is running and the page remains loaded.
+1. Download the latest `reddit-autoscroll-<version>.xpi` from [Releases](https://github.com/lilfire/reddit-autoscroll/releases).
+2. Firefox asks whether to add the extension. Select **Add**.
+3. New versions are installed automatically.
 
-A temporary installation is removed when Firefox closes. A ZIP file in `dist`, when available, is the source package for Mozilla signing. Standard Firefox requires signing for permanent installation.
+Requires Firefox 140 or newer. Open a regular website, click the extension icon, and select **Start / oppdater** (Start / update). Switch tabs or use another application; scrolling continues while Firefox is running and the page remains loaded.
+
+## Development
+
+```bash
+npm install
+npm test          # unit tests
+npm run lint      # web-ext lint (self-hosted)
+npm run start:firefox
+```
+
+To load it temporarily instead, open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and open `manifest.json` from this folder. A temporary installation is removed when Firefox closes.
+
+Releases are signed by Mozilla (unlisted) and published by GitHub Actions; see [.github/RELEASING.md](.github/RELEASING.md).
 
 The extension interface currently uses Norwegian labels. Their English meanings are included below where relevant.
 
@@ -65,7 +77,7 @@ The extension uses Manifest V2 for a persistent Firefox background page and is d
 
 ## Verification
 
-Run `node --test tests/*.test.cjs`. The tests simulate browser APIs and scroll areas; they do not replace testing in Firefox.
+Run `npm test`. The tests simulate browser APIs and scroll areas; they do not replace testing in Firefox.
 
 For manual testing in Firefox:
 

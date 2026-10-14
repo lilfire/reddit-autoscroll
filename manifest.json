@@ -3,10 +3,18 @@
   "name": "Scroll uten fokus",
   "version": "1.0.9",
   "description": "Scroll en valgt fane automatisk, også når den ikke har fokus.",
+  "homepage_url": "https://github.com/lilfire/reddit-autoscroll",
   "permissions": ["activeTab", "storage", "*://*.redgifs.com/*"],
   "content_scripts": [{ "matches": ["*://*.redgifs.com/*"], "js": ["frame-video.js"], "all_frames": true }],
   "background": { "scripts": ["background.js"], "persistent": true },
   "browser_action": { "default_title": "Scroll uten fokus", "default_popup": "popup.html" },
   "commands": { "toggle-scroll": { "suggested_key": { "default": "Alt+Shift+S" }, "description": "Start eller pause scrolling i valgt fane" } },
-  "browser_specific_settings": { "gecko": { "id": "scroll-without-focus@local.example", "strict_min_version": "109.0" } }
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{4d2d24f0-bbe5-4542-8f8c-f474bfb30d0e}",
+      "strict_min_version": "140.0",
+      "update_url": "https://raw.githubusercontent.com/lilfire/reddit-autoscroll/main/updates.json",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
 }

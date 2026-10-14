@@ -1,3 +1,5 @@
+# New version: bump "version" in manifest.json, commit, and push a matching tag (e.g. v1.0.10).
+# Requires the repo secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (API keys from addons.mozilla.org).
 name: Release
 
 on:
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
     steps:
@@ -28,12 +30,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
-          persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
 
       - name: Validate release version
         run: |
@@ -43,21 +49,11 @@ jobs:
           if (!/^v\d+\.\d+\.\d+$/.test(tag) || tag !== `v${manifest.version}`) {
             throw new Error(`Tag ${tag} must match manifest version v${manifest.version}`);
           }
-          require('node:fs').appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=${tag}\n`);
+          const fs = require('node:fs');
+          fs.appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=${tag}\nVERSION=${manifest.version}\n`);
           NODE
 
-      - name: Run tests
-        run: node --test tests/*.test.cjs
-
-      - name: Package Firefox extension
-        run: |
-          mkdir -p dist
-          zip "dist/reddit-autoscroll-$RELEASE_TAG.zip" \
-            manifest.json background.js content.js frame-video.js \
-            popup.html popup.css popup.js
-          unzip -t "dist/reddit-autoscroll-$RELEASE_TAG.zip"
-
-      - name: Publish GitHub Release
+      - name: Check that the release does not exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -73,8 +69,32 @@ jobs:
               exit 1
             fi
           fi
-          gh release create "$RELEASE_TAG" \
-            "dist/reddit-autoscroll-$RELEASE_TAG.zip" \
+
+      - name: Sign for Firefox (unlisted)
+        run: >
+          npx web-ext sign --channel unlisted --approval-timeout 900000
+          --api-key "${{ secrets.AMO_JWT_ISSUER }}" --api-secret "${{ secrets.AMO_JWT_SECRET }}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          XPI=$(ls web-ext-artifacts/*.xpi | head -n1)
+          cp "$XPI" "reddit-autoscroll-$VERSION.xpi"
+          gh release create "$RELEASE_TAG" "reddit-autoscroll-$VERSION.xpi" \
             --target "$(git rev-parse HEAD)" \
-            --title "$RELEASE_TAG" \
+            --title "Scroll Without Focus $VERSION" \
             --generate-notes
+
+      - name: Update updates.json
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+          node scripts/update-manifest.js "$VERSION" \
+            "https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG/reddit-autoscroll-$VERSION.xpi"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add updates.json
+          git commit -m "updates.json: $VERSION"
+          git push origin main

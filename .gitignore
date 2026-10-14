@@ -29,3 +29,7 @@ web-ext-artifacts/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local Firefox profile and signed packages
+.firefox-profile/
+*.xpi
