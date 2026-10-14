@@ -1,7 +1,12 @@
 {
   "addons": {
     "{4d2d24f0-bbe5-4542-8f8c-f474bfb30d0e}": {
-      "updates": []
+      "updates": [
+        {
+          "version": "1.0.10",
+          "update_link": "https://github.com/lilfire/reddit-autoscroll/releases/download/v1.0.10/reddit-autoscroll-1.0.10.xpi"
+        }
+      ]
     }
   }
 }
